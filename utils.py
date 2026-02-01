@@ -98,9 +98,9 @@ def calculate_optimal_resolution(
     
     # Compression efficiency (bits per pixel per frame)
     if codec in ['h265', 'hevc', 'h265_nvenc', 'hevc_nvenc']:
-        bpp = 0.08  # H.265 is more efficient
+        bpp = 0.15  # H.265 is more efficient
     else:  # H.264
-        bpp = 0.12
+        bpp = 0.20
     
     # Calculate maximum pixels per frame
     max_pixels = (target_bitrate_kbps * 1000) / (fps * bpp)
