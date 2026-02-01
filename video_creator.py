@@ -30,6 +30,7 @@ def create_velocity_video(
     pixel_size: float,
     output_path: str,
     target_size_mb: float = 200,
+    dt: Optional[float] = None,
     fps: float = 25.0,
     codec: str = 'h264',
     preset: str = 'medium',
@@ -183,7 +184,8 @@ def create_velocity_video(
     """
     # Calculate dt
     times = stack.time()
-    dt = np.mean(np.diff(times[1:]))
+    if dt is None:
+        dt = np.mean(np.diff(times[1:]))
     
     # Handle frame range
     if end is None or end <= 0:
@@ -236,7 +238,7 @@ def create_velocity_video(
         try:
             processor = GPUVelocityOverlayProcessor(
                 preprocessor, x, y, u, v, pixel_size, dt,
-                output_resolution=output_resolution,
+                output_resolution=None,
                 arrow_scale=arrow_scale,
                 arrow_width=arrow_width,
                 arrow_color=arrow_color,
@@ -249,7 +251,7 @@ def create_velocity_video(
             use_gpu = False
             processor = VelocityOverlayProcessor(
                 preprocessor, x, y, u, v, pixel_size, dt,
-                output_resolution=output_resolution,
+                output_resolution=None,
                 arrow_scale=arrow_scale,
                 arrow_width=arrow_width,
                 arrow_color=arrow_color,
@@ -258,7 +260,7 @@ def create_velocity_video(
     else:
         processor = VelocityOverlayProcessor(
             preprocessor, x, y, u, v, pixel_size, dt,
-            output_resolution=output_resolution,
+            output_resolution=None,
             arrow_scale=arrow_scale,
             arrow_width=arrow_width,
             arrow_color=arrow_color,
@@ -336,6 +338,7 @@ def create_video_simple(
     output_path: str,
     pixel_size: float = 0.65,
     target_size_mb: float = 200,
+    dt: float =1/25,
     fps: float = 25,
     skip: int = 1,
     text: bool = True,
@@ -393,6 +396,7 @@ def create_video_simple(
         create_velocity_video(
             stack, preprocessor,
             vel['x'], vel['y'], vel['u'], vel['v'],
+            dt = dt,
             pixel_size=pixel_size,
             output_path=output_path,
             target_size_mb=target_size_mb,
@@ -410,6 +414,7 @@ def create_video_simple(
             create_velocity_video(
                 stack, preprocessor,
                 vel['x'], vel['y'], vel['u'], vel['v'],
+                dt = dt,
                 pixel_size=pixel_size,
                 output_path=output_path,
                 target_size_mb=target_size_mb,
@@ -433,6 +438,7 @@ def create_video_with_validation(
     pixel_size: float,
     output_path: str,
     target_size_mb: float = 200,
+    dt : float =1/25,
     fps: float = 25.0,
     codec: str = 'h264',
     **kwargs
@@ -501,6 +507,7 @@ def create_video_with_validation(
     
     create_velocity_video(
         stack, preprocessor, x, y, u, v, pixel_size,
+        dt = dt,
         output_path=output_path,
         target_size_mb=target_size_mb,
         fps=fps,
