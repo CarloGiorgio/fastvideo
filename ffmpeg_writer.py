@@ -65,6 +65,46 @@ def check_ffmpeg_codecs() -> dict:
         return {'h264': True, 'h265': False, 'h264_nvenc': False, 'h265_nvenc': False}
 
 
+def get_nvenc_preset(preset: str) -> str:
+    """
+    Convert preset to NVENC-compatible format.
+    
+    NVENC presets changed between FFmpeg versions:
+    - Older versions: p1-p7
+    - Newer versions: fast, medium, slow, etc.
+    
+    Parameters
+    ----------
+    preset : str
+        User-specified preset
+    
+    Returns
+    -------
+    str
+        NVENC-compatible preset name
+    """
+    # Map common presets to NVENC equivalents
+    nvenc_preset_map = {
+        'ultrafast': 'fast',
+        'faster': 'fast',
+        'fast': 'fast',
+        'medium': 'medium',
+        'slow': 'slow',
+        'slower': 'slow',
+        'veryslow': 'slow',
+        # Also accept p-style presets directly
+        'p1': 'fast',
+        'p2': 'fast',
+        'p3': 'fast',
+        'p4': 'medium',
+        'p5': 'medium',
+        'p6': 'slow',
+        'p7': 'slow',
+    }
+    
+    return nvenc_preset_map.get(preset.lower(), 'medium')
+
+
 def validate_ffmpeg_params(
     width: int,
     height: int,
@@ -160,7 +200,7 @@ class RobustFFmpegWriter:
     preset : str, optional
         Encoding preset:
         - CPU: 'ultrafast', 'fast', 'medium', 'slow', 'veryslow'
-        - NVENC: 'p1' (fast) to 'p7' (slow, best quality)
+        - NVENC: 'fast', 'medium', 'slow' (automatically converted)
         Default: 'medium'
     pix_fmt : str, optional
         Pixel format. Default: 'yuv420p' (universal compatibility)
@@ -181,10 +221,11 @@ class RobustFFmpegWriter:
     ...     for frame in frames:
     ...         writer.write(frame)
     
-    >>> # GPU encoding
+    >>> # GPU encoding (NVENC)
     >>> writer = RobustFFmpegWriter(
     ...     'output.mp4', 1024, 1024, 25,
     ...     codec='h265_nvenc',
+    ...     preset='medium',  # Automatically converted to NVENC preset
     ...     bitrate='2M'
     ... )
     >>> for frame in frames:
@@ -272,7 +313,8 @@ class RobustFFmpegWriter:
             ])
         
         elif self.codec in ['h265_nvenc', 'hevc_nvenc']:
-            nvenc_preset = self.preset if self.preset.startswith('p') else 'p4'
+            # Convert preset to NVENC-compatible format
+            nvenc_preset = get_nvenc_preset(self.preset)
             cmd.extend([
                 '-vcodec', 'hevc_nvenc',
                 '-preset', nvenc_preset,
@@ -281,9 +323,12 @@ class RobustFFmpegWriter:
                 '-bufsize', f'{int(self.bitrate[:-1]) * 2}k',
                 '-pix_fmt', self.pix_fmt,
             ])
+            if self.verbose:
+                print(f"NVENC: Converting preset '{self.preset}' → '{nvenc_preset}'")
         
         elif self.codec == 'h264_nvenc':
-            nvenc_preset = self.preset if self.preset.startswith('p') else 'p4'
+            # Convert preset to NVENC-compatible format
+            nvenc_preset = get_nvenc_preset(self.preset)
             cmd.extend([
                 '-vcodec', 'h264_nvenc',
                 '-preset', nvenc_preset,
@@ -292,6 +337,8 @@ class RobustFFmpegWriter:
                 '-bufsize', f'{int(self.bitrate[:-1]) * 2}k',
                 '-pix_fmt', self.pix_fmt,
             ])
+            if self.verbose:
+                print(f"NVENC: Converting preset '{self.preset}' → '{nvenc_preset}'")
         
         else:  # h264 or fallback
             cmd.extend([

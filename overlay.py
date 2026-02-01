@@ -644,12 +644,9 @@ if HAS_CUPY:
             
             # Preprocess (can be on GPU if preprocessor supports it)
             #TODO check a more clever way to implement a change on cpu
-            try:
-                img_gpu = cp.asarray(img)
-                img_processed = self.base_preprocessor(img_gpu)
-            except:
-                img_processed_cpu = self.base_preprocessor(img_gpu.get())
-                img_processed = cp.asarray(img_processed_cpu)
+            
+            img_processed_cpu = self.base_preprocessor(img)
+            img_processed = cp.asarray(img_processed_cpu)
             
             # Downsample on GPU if needed
             if self.output_resolution is not None:
