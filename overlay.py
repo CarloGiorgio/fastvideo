@@ -28,7 +28,7 @@ except ImportError:
 # CPU IMPLEMENTATION (Numba-optimized)
 # ============================================================================
 
-@jit(nopython=True, parallel=True, cache=True)
+@jit(nopython=True, cache=True)
 def draw_arrows_numba(
     img_rgb: np.ndarray,
     x_pix: np.ndarray,
