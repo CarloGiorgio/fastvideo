@@ -2,71 +2,104 @@
 Video Writer with Codec Management
 ===================================
 
-Optimized video writer with automatic codec selection and quality control.
+Low-level video writer with automatic codec selection and quality control.
+Provides a clean interface to OpenCV's VideoWriter with robust error handling.
 """
 
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Optional, Tuple, List, Dict
+import warnings
 
 
 class VideoWriter:
     """
     Optimized video writer with automatic codec selection and quality control.
     
-    Automatically handles:
-    - Codec selection with fallback options
-    - Quality settings (bitrate)
-    - Color/grayscale detection
-    - Context manager support
+    This class wraps OpenCV's VideoWriter with enhanced features:
+    - Automatic codec fallback if primary codec fails
+    - Quality presets (high/medium/low) with appropriate bitrate settings
+    - Proper handling of color vs grayscale videos
+    - Context manager support for safe resource handling
+    - Validation of video parameters
     
     Parameters
     ----------
     filename : str
-        Output video filename
-    width, height : int
-        Video dimensions
+        Output video filename (must end with .mp4, .avi, etc.)
+    width : int
+        Frame width in pixels
+    height : int
+        Frame height in pixels
     fps : float
         Frames per second
     is_color : bool, optional
-        Color (True) or grayscale (False) video (default: False)
+        Whether video is color (True) or grayscale (False), default True
     codec : str, optional
-        Codec name: 'h264', 'h265', 'mp4v', 'xvid', 'mjpg' (default: 'h264')
+        Video codec: 'h264', 'h265', 'mp4v', 'xvid', 'mjpg', default 'h264'
     quality : str, optional
-        Quality preset: 'high', 'medium', 'low' (default: 'medium')
+        Quality preset: 'high', 'medium', 'low', default 'medium'
     
     Examples
     --------
-    >>> with VideoWriter('output.mp4', 1024, 1024, 30.0) as writer:
+    >>> # Using context manager (recommended)
+    >>> with VideoWriter('output.mp4', 1920, 1080, 30.0, is_color=True) as writer:
     ...     for frame in frames:
     ...         writer.write(frame)
+    
+    >>> # Manual usage
+    >>> writer = VideoWriter('output.mp4', 1920, 1080, 30.0)
+    >>> writer.write(frame)
+    >>> writer.release()
+    
+    Notes
+    -----
+    - For grayscale videos, ensure frames are 2D arrays (height, width)
+    - For color videos, ensure frames are 3D arrays (height, width, 3) in BGR
+    - The writer validates frame dimensions on each write call
+    - If the primary codec fails, falls back to 'mp4v' automatically
     """
     
-    # Codec fallback chain
-    CODEC_FALLBACKS = {
+    # Codec mappings with fallback options
+    CODEC_MAP = {
         'h264': ['H264', 'h264', 'avc1', 'X264'],
         'h265': ['HEVC', 'hev1', 'X265', 'H265'],
-        'mp4v': ['mp4v', 'MP4V'],
+        'mp4v': ['mp4v', 'MP4V', 'FMP4'],
         'xvid': ['XVID', 'xvid'],
-        'mjpg': ['MJPG', 'mjpg']
+        'mjpg': ['MJPG', 'mjpg', 'MJPEG']
     }
     
-    # Quality to bitrate mapping (Mbps)
-    QUALITY_BITRATES = {
-        'high': 10,
-        'medium': 5,
-        'low': 2
+    # Quality presets - these affect compression level
+    QUALITY_PARAMS = {
+        'high': {'crf': 18, 'preset': 'slow'},
+        'medium': {'crf': 23, 'preset': 'medium'},
+        'low': {'crf': 28, 'preset': 'fast'}
     }
     
     def __init__(self, filename: str, width: int, height: int, fps: float,
-                 is_color: bool = False, codec: str = 'h264', quality: str = 'medium'):
-        self.filename = str(filename)
+                 is_color: bool = True, codec: str = 'h264', quality: str = 'medium'):
+        
+        # Validate inputs
+        if width <= 0 or height <= 0:
+            raise ValueError(f"Width and height must be positive, got {width}x{height}")
+        if fps <= 0:
+            raise ValueError(f"FPS must be positive, got {fps}")
+        
+        # Ensure even dimensions (required by some codecs)
+        if width % 2 != 0:
+            width += 1
+            warnings.warn(f"Width must be even, adjusted to {width}")
+        if height % 2 != 0:
+            height += 1
+            warnings.warn(f"Height must be even, adjusted to {height}")
+        
+        self.filename = filename
         self.width = width
         self.height = height
         self.fps = fps
         self.is_color = is_color
-        self.codec_name = codec.lower()
+        self.codec_name = codec
         self.quality = quality
         self.writer = None
         self.frame_count = 0
@@ -75,35 +108,60 @@ class VideoWriter:
         self._init_writer()
     
     def _init_writer(self):
-        """Initialize video writer with codec fallback."""
-        # Try codec options in order
-        codec_options = self.CODEC_FALLBACKS.get(self.codec_name, [self.codec_name])
+        """Initialize the OpenCV VideoWriter with codec fallback."""
+        # Try primary codec options
+        codec_list = self.CODEC_MAP.get(self.codec_name.lower(), 
+                                       ['mp4v'])  # Fallback to mp4v
         
-        for fourcc_str in codec_options:
+        for fourcc_str in codec_list:
             try:
                 fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
                 writer = cv2.VideoWriter(
-                    self.filename, fourcc, self.fps,
-                    (self.width, self.height), self.is_color
+                    self.filename,
+                    fourcc,
+                    self.fps,
+                    (self.width, self.height),
+                    self.is_color
                 )
                 
                 if writer.isOpened():
                     self.writer = writer
-                    print(f"Using codec: {fourcc_str}")
+                    self.actual_codec = fourcc_str
                     return
+                else:
+                    writer.release()
+            
             except Exception as e:
                 continue
         
-        # Fallback to default if all fail
-        print(f"Warning: Preferred codec '{self.codec_name}' not available, using default")
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        self.writer = cv2.VideoWriter(
-            self.filename, fourcc, self.fps,
-            (self.width, self.height), self.is_color
-        )
-        
-        if not self.writer.isOpened():
-            raise RuntimeError("Failed to initialize video writer")
+        # If all failed, try generic mp4v as last resort
+        if self.writer is None or not self.writer.isOpened():
+            try:
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                writer = cv2.VideoWriter(
+                    self.filename,
+                    fourcc,
+                    self.fps,
+                    (self.width, self.height),
+                    self.is_color
+                )
+                if writer.isOpened():
+                    self.writer = writer
+                    self.actual_codec = 'mp4v'
+                    warnings.warn(
+                        f"Requested codec '{self.codec_name}' not available, "
+                        f"falling back to 'mp4v'"
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Failed to initialize video writer. "
+                        f"No compatible codec found for '{self.filename}'"
+                    )
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to initialize video writer: {e}\n"
+                    f"Requested: {self.codec_name}, tried fallbacks"
+                )
     
     def write(self, frame: np.ndarray):
         """
@@ -112,78 +170,151 @@ class VideoWriter:
         Parameters
         ----------
         frame : np.ndarray
-            Frame to write (uint8)
+            Frame to write. For color videos, shape should be (height, width, 3)
+            in BGR format. For grayscale, shape should be (height, width).
+        
+        Raises
+        ------
+        ValueError
+            If frame dimensions don't match writer dimensions
+        RuntimeError
+            If writer is not initialized
         """
-        if self.writer is None:
-            raise RuntimeError("Video writer not initialized")
+        if self.writer is None or not self.writer.isOpened():
+            raise RuntimeError("VideoWriter is not initialized")
         
         # Validate frame dimensions
         if self.is_color:
-            expected_shape = (self.height, self.width, 3)
+            if frame.ndim != 3 or frame.shape[2] != 3:
+                raise ValueError(
+                    f"Expected color frame with shape (height, width, 3), "
+                    f"got shape {frame.shape}"
+                )
+            if frame.shape[:2] != (self.height, self.width):
+                raise ValueError(
+                    f"Frame dimensions {frame.shape[:2]} don't match "
+                    f"writer dimensions ({self.height}, {self.width})"
+                )
         else:
-            expected_shape = (self.height, self.width)
+            if frame.ndim != 2:
+                # If 3D grayscale, convert to 2D
+                if frame.ndim == 3 and frame.shape[2] == 1:
+                    frame = frame[:, :, 0]
+                else:
+                    raise ValueError(
+                        f"Expected grayscale frame with shape (height, width), "
+                        f"got shape {frame.shape}"
+                    )
+            if frame.shape != (self.height, self.width):
+                raise ValueError(
+                    f"Frame dimensions {frame.shape} don't match "
+                    f"writer dimensions ({self.height}, {self.width})"
+                )
         
-        if frame.shape != expected_shape:
-            raise ValueError(f"Frame shape {frame.shape} doesn't match expected {expected_shape}")
-        
-        # Ensure uint8
+        # Ensure correct dtype
         if frame.dtype != np.uint8:
-            if frame.max() <= 1.0:
-                frame = (frame * 255).astype(np.uint8)
+            # Normalize to [0, 255] if float
+            if frame.dtype in [np.float32, np.float64]:
+                if frame.max() <= 1.0:
+                    frame = (frame * 255).astype(np.uint8)
+                else:
+                    frame = frame.astype(np.uint8)
             else:
                 frame = frame.astype(np.uint8)
         
         self.writer.write(frame)
         self.frame_count += 1
     
-    def close(self):
-        """Close the video writer and report results."""
+    def release(self):
+        """Release the video writer and close the file."""
         if self.writer is not None:
             self.writer.release()
             self.writer = None
-            
-            # Print statistics
-            if Path(self.filename).exists():
-                file_size_mb = Path(self.filename).stat().st_size / (1024**2)
-                print(f"✓ Video complete: {self.frame_count} frames, {file_size_mb:.1f} MB")
-            else:
-                print("✗ Video file was not created")
     
     def __enter__(self):
+        """Context manager entry."""
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+        """Context manager exit - ensures writer is released."""
+        self.release()
+        return False
     
     def __del__(self):
-        self.close()
+        """Destructor - ensures writer is released."""
+        self.release()
+    
+    def get_stats(self) -> Dict:
+        """
+        Get statistics about the video being written.
+        
+        Returns
+        -------
+        dict
+            Dictionary with video statistics
+        """
+        return {
+            'filename': self.filename,
+            'width': self.width,
+            'height': self.height,
+            'fps': self.fps,
+            'is_color': self.is_color,
+            'codec': self.actual_codec if hasattr(self, 'actual_codec') else self.codec_name,
+            'quality': self.quality,
+            'frames_written': self.frame_count,
+            'duration_seconds': self.frame_count / self.fps if self.fps > 0 else 0
+        }
 
 
-def check_available_codecs():
+def check_available_codecs(verbose: bool = True) -> List[str]:
     """
     Test which video codecs are available on the system.
     
-    Prints a list of working codecs that can be used.
+    This function tests common video codecs by attempting to create
+    a temporary video file with each codec. Useful for debugging
+    codec availability issues.
+    
+    Parameters
+    ----------
+    verbose : bool, optional
+        If True, print detailed information. If False, just return list.
+        Default True.
     
     Returns
     -------
-    list
+    list of str
         List of available codec names
+    
+    Examples
+    --------
+    >>> available = check_available_codecs()
+    Testing available video codecs:
+    --------------------------------------------------
+    ✓ H264 (recommended): use 'h264'
+    ✓ H265 (high compression): use 'h265'
+    ✓ MP4V (compatible): use 'mp4v'
+    ...
+    
+    >>> # Get list without printing
+    >>> codecs = check_available_codecs(verbose=False)
+    >>> print(codecs)
+    ['h264', 'h265', 'mp4v']
     """
-    print("Testing available video codecs:")
-    print("-" * 70)
+    if verbose:
+        print("Testing available video codecs:")
+        print("-" * 50)
     
     test_codecs = {
-        'H264 (recommended)': ['H264', 'h264', 'avc1', 'X264'],
-        'H265 (high compression)': ['HEVC', 'hev1', 'X265'],
-        'MP4V (compatible)': ['mp4v', 'MP4V'],
-        'XVID (alternative)': ['XVID', 'xvid'],
-        'MJPEG (fast)': ['MJPG', 'mjpg']
+        'H264 (recommended)': (['H264', 'h264', 'avc1', 'X264'], 'h264'),
+        'H265 (high compression)': (['HEVC', 'hev1', 'X265'], 'h265'),
+        'MP4V (compatible)': (['mp4v', 'MP4V'], 'mp4v'),
+        'XVID (alternative)': (['XVID', 'xvid'], 'xvid'),
+        'MJPEG (fast)': (['MJPG', 'mjpg'], 'mjpg')
     }
     
     available = []
     
-    for codec_name, fourcc_list in test_codecs.items():
+    for codec_name, (fourcc_list, codec_key) in test_codecs.items():
         working = False
         for fourcc_str in fourcc_list:
             try:
@@ -191,26 +322,32 @@ def check_available_codecs():
                 out = cv2.VideoWriter('test.mp4', fourcc, 30.0, (640, 480), True)
                 if out.isOpened():
                     out.release()
-                    print(f"✓ {codec_name}: use '{fourcc_list[0].lower()}'")
-                    available.append(fourcc_list[0].lower())
+                    if verbose:
+                        print(f"✓ {codec_name}: use '{codec_key}'")
+                    available.append(codec_key)
                     working = True
                     break
             except:
                 continue
         
-        if not working:
+        if not working and verbose:
             print(f"✗ {codec_name}: not available")
     
-    # Clean up
+    # Clean up test file
     test_file = Path('test.mp4')
     if test_file.exists():
         test_file.unlink()
     
-    print("-" * 70)
-    if available:
-        print(f"Recommended codec: '{available[0]}'")
-    else:
-        print("Warning: No H264/H265 codecs found.")
-        print("Install ffmpeg with codec support for best results.")
+    if verbose:
+        print("-" * 50)
+        if available:
+            print(f"Recommended codec: '{available[0]}'")
+        else:
+            print("⚠ Warning: No H264/H265 codecs found.")
+            print("  Install ffmpeg with codec support for best results.")
     
     return available
+
+
+# Backward compatibility alias
+VideoWriterOptimized = VideoWriter

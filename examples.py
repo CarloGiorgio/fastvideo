@@ -1,8 +1,8 @@
 """
-Video Creation Examples
-=======================
+FastVideo Usage Examples
+======================
 
-Complete working examples for the _video package.
+Complete working examples demonstrating all major features.
 """
 
 import numpy as np
@@ -10,390 +10,508 @@ from scipy.ndimage import gaussian_filter
 
 
 # =============================================================================
-# Example 1: Basic Video Creation
+# EXAMPLE 1: Basic Video Creation
 # =============================================================================
 
-def example_basic_video():
-    """Create a simple grayscale video from a stack."""
-    from _video import video_from_stack
+def example_basic_video(stack):
+    """
+    Create a simple grayscale video from a stack.
     
-    # Assume you have a stack object
-    # stack = load_stack('data.tif')
+    Parameters
+    ----------
+    stack : object
+        Image stack with .data and .time() methods
+    """
+    from fastvideo import video_from_stack
     
-    # Define preprocessing
+    # Define simple normalization preprocessing
     def preprocess(img):
         # Normalize to [0, 1]
         img_norm = (img - img.min()) / (img.max() - img.min())
         return img_norm
     
-    # Create video
+    # Create video with default settings
     video_from_stack(
         stack,
         preprocess,
         'output_basic.mp4',
-        speed=2.0,       # 2x playback speed
+        speed=1.0,
         codec='h264',
-        quality='high',
-        text=True,       # Show time overlay
-        start=0,
-        end=1000,
-        skip=2           # Use every 2nd frame
+        quality='medium'
     )
     
-    print("Basic video created: output_basic.mp4")
+    print("✓ Basic video created: output_basic.mp4")
 
 
 # =============================================================================
-# Example 2: Custom Preprocessing
+# EXAMPLE 2: High-Quality Video with Text Overlay
 # =============================================================================
 
-def example_custom_preprocessing():
-    """Create video with custom image processing."""
-    from _video import video_from_stack
+def example_high_quality_with_text(stack):
+    """Create high-quality video with time overlay."""
+    from fastvideo import video_from_stack
     
-    def custom_preprocess(img):
+    def preprocess(img):
+        return img / img.max()
+    
+    video_from_stack(
+        stack,
+        preprocess,
+        'output_hq_text.mp4',
+        speed=2.0,           # 2x playback speed
+        codec='h264',
+        quality='high',      # High quality
+        text=True,           # Show time overlay
+        fontsize=1.5,        # Moderate font size
+        text_color=(255, 255, 0),  # Yellow text
+        text_position=(50, 50)     # Top-left corner
+    )
+    
+    print("✓ High-quality video with text created")
+
+
+# =============================================================================
+# EXAMPLE 3: Advanced Preprocessing
+# =============================================================================
+
+def example_advanced_preprocessing(stack):
+    """Create video with sophisticated image processing."""
+    from fastvideo import video_from_stack
+    
+    def advanced_preprocess(img):
+        """
+        Advanced preprocessing pipeline:
+        1. Gaussian smoothing
+        2. Background subtraction
+        3. Normalization
+        """
         # Apply Gaussian smoothing
         img_smooth = gaussian_filter(img, sigma=1.5)
         
-        # Background subtraction
+        # Estimate and subtract background
         background = gaussian_filter(img_smooth, sigma=50)
         img_subtracted = img_smooth - background
         
-        # Normalize
-        img_norm = (img_subtracted - img_subtracted.min())
-        img_norm = img_norm / img_norm.max()
+        # Clip negative values
+        img_subtracted = np.maximum(img_subtracted, 0)
+        
+        # Normalize to [0, 1]
+        if img_subtracted.max() > 0:
+            img_norm = img_subtracted / img_subtracted.max()
+        else:
+            img_norm = img_subtracted
         
         return img_norm
     
     video_from_stack(
         stack,
-        custom_preprocess,
+        advanced_preprocess,
         'output_processed.mp4',
         codec='h264',
         quality='medium'
     )
     
-    print("Processed video created: output_processed.mp4")
+    print("✓ Processed video created: output_processed.mp4")
 
 
 # =============================================================================
-# Example 3: Velocity Field Video
+# EXAMPLE 4: Velocity Field Video (PIV)
 # =============================================================================
 
-def example_velocity_video():
-    """Create video with velocity field overlay."""
-    from _video import video_with_vectors
+def example_velocity_video(stack, x, y, u, v, pixel_size=0.65):
+    """
+    Create video with velocity field overlay.
     
-    # Assume you have PIV results
-    # x, y = meshgrid of coordinates
-    # u, v = velocity components (shape: n_frames x n_rows x n_cols)
+    Parameters
+    ----------
+    stack : object
+        Image stack
+    x, y : np.ndarray
+        Coordinate meshgrids
+    u, v : np.ndarray
+        Velocity components (can be 2D or 3D)
+    pixel_size : float
+        Physical size per pixel (microns)
+    """
+    from fastvideo import create_velocity_video
+    
+    def preprocess(img):
+        return (img - img.min()) / (img.max() - img.min())
+    
+    create_velocity_video(
+        stack, preprocess, x, y, u, v,
+        filename='velocity_video.mp4',
+        pixel_size=pixel_size,
+        vector_scale=None,         # Auto-calibrate
+        vector_skip=2,             # Draw every 2nd arrow
+        vector_color=(255, 255, 0),  # Yellow arrows
+        vector_thickness=2,
+        quality='high',
+        text=True                  # Show timestamps
+    )
+    
+    print("✓ Velocity video created: velocity_video.mp4")
+
+
+# =============================================================================
+# EXAMPLE 5: Manual Arrow Scaling
+# =============================================================================
+
+def example_manual_arrows(stack, x, y, u, v):
+    """
+    Create velocity video with manual arrow parameters.
+    """
+    from fastvideo import video_with_vectors, calculate_auto_arrow_scale
     
     def preprocess(img):
         return img / img.max()
     
+    # Calculate recommended scale
+    auto_scale = calculate_auto_arrow_scale(u, v, pixel_size=0.65)
+    print(f"Auto-calculated scale: {auto_scale:.2f}")
+    
+    # Use custom scale (e.g., make arrows longer)
+    custom_scale = auto_scale * 1.5
+    
     video_with_vectors(
         stack, preprocess, x, y, u, v,
-        'velocity_field.mp4',
-        vector_skip=3,              # Draw every 3rd arrow
-        vector_scale=2.0,           # Arrow length scale
-        vector_color=(255, 255, 0), # Yellow arrows
-        vector_thickness=2,
-        text=True,
-        fontsize=1.5,
-        speed=1.0,
-        fps=30
-    )
-    
-    print("Velocity video created: velocity_field.mp4")
-
-
-# =============================================================================
-# Example 4: Auto-Calibrated Velocity Video
-# =============================================================================
-
-def example_auto_calibrated_video():
-    """Create velocity video with automatic parameter calibration."""
-    from _video import create_velocity_video, auto_calibrate_arrows
-    
-    # Define pixel size (microns per pixel)
-    pixel_size = 0.65
-    
-    # Auto-calibrate arrow parameters
-    params = auto_calibrate_arrows(u, v, pixel_size, target_length_pixels=20)
-    
-    # Create video with calibrated parameters
-    def preprocess(img):
-        return gaussian_filter(img, sigma=1.0) / img.max()
-    
-    create_velocity_video(
-        stack, preprocess, x, y, u, v,
-        'velocity_calibrated.mp4',
-        pixel_size=pixel_size,
-        vector_scale=params['scale'],
-        vector_skip=params['subsample'],
-        vector_thickness=params['thickness'],
+        filename='velocity_custom.mp4',
+        vector_scale=custom_scale,
+        vector_skip=3,                # Fewer arrows for clarity
+        vector_color=(0, 255, 0),     # Green arrows
+        vector_thickness=3,           # Thicker arrows
         codec='h264',
         quality='high'
     )
     
-    print(f"Calibrated video created with:")
-    print(f"  Arrow scale: {params['scale']:.2f}")
-    print(f"  Subsample: {params['subsample']}")
-    print(f"  Thickness: {params['thickness']}")
+    print(f"✓ Custom arrow video created (scale={custom_scale:.2f})")
 
 
 # =============================================================================
-# Example 5: Color Video
+# EXAMPLE 6: Frame Subset Processing
 # =============================================================================
 
-def example_color_video():
-    """Create RGB color video."""
-    from _video import video_from_stack_color
+def example_frame_subset(stack):
+    """Process only a subset of frames."""
+    from fastvideo import video_from_stack
+    
+    def preprocess(img):
+        return img / img.max()
+    
+    # Get total frames
+    n_frames = len(stack)
+    print(f"Total frames in stack: {n_frames}")
+    
+    # Process middle third, using every 2nd frame
+    start = n_frames // 3
+    end = 2 * n_frames // 3
+    
+    video_from_stack(
+        stack,
+        preprocess,
+        'subset_video.mp4',
+        start=start,
+        end=end,
+        skip=2,              # Use every 2nd frame
+        speed=1.0,
+        quality='medium'
+    )
+    
+    print(f"✓ Subset video created (frames {start}-{end}, skip=2)")
+
+
+# =============================================================================
+# EXAMPLE 7: RGB Color Video
+# =============================================================================
+
+def example_color_video(stack):
+    """Create RGB color video using matplotlib colormap."""
+    from fastvideo import video_from_stack_color
     import matplotlib.pyplot as plt
     
-    def color_preprocess(img, frame_idx):
-        # Normalize image
+    def rgb_preprocess(img):
+        """Convert grayscale to RGB using viridis colormap."""
+        # Normalize to [0, 1]
         img_norm = (img - img.min()) / (img.max() - img.min())
         
-        # Create colormap (hot colormap effect)
-        r = img_norm
-        g = img_norm ** 2
-        b = img_norm ** 4
+        # Apply colormap (returns RGBA)
+        rgba = plt.cm.viridis(img_norm)
         
-        # Stack to RGB
-        rgb = np.stack([r, g, b], axis=-1)
+        # Extract RGB only
+        rgb = rgba[:, :, :3]
         
-        return rgb
+        # Convert to uint8
+        rgb_uint8 = (rgb * 255).astype(np.uint8)
+        
+        return rgb_uint8
     
     video_from_stack_color(
         stack,
-        color_preprocess,
-        'output_color.mp4',
+        rgb_preprocess,
+        'color_video.mp4',
         codec='h264',
-        quality='high',
-        speed=1.5
+        quality='high'
     )
     
-    print("Color video created: output_color.mp4")
+    print("✓ Color video created: color_video.mp4")
 
 
 # =============================================================================
-# Example 6: Resolution Optimization
+# EXAMPLE 8: Multiple Quality Versions
 # =============================================================================
 
-def example_resolution_optimization():
-    """Optimize video resolution for target file size."""
-    from _video import calculate_optimal_resolution, estimate_file_size
+def example_multiple_qualities(stack):
+    """Create same video in different quality settings."""
+    from fastvideo import video_from_stack
     
-    # Original dimensions
-    original_size = (1648, 1648)
+    def preprocess(img):
+        return img / img.max()
     
-    # Video parameters
-    duration = len(stack) / 30  # seconds
-    fps = 30
+    qualities = ['low', 'medium', 'high']
     
-    # Estimate file size at original resolution
-    size_original = estimate_file_size(
-        *original_size, duration, fps, 
-        codec='h264', quality='medium'
-    )
-    print(f"Estimated size at {original_size}: {size_original:.1f} MB")
-    
-    # Calculate optimal resolution for target size
-    target_size_mb = 200
-    optimal_size = calculate_optimal_resolution(
-        original_size,
-        target_size_mb=target_size_mb,
-        duration_s=duration,
-        fps=fps,
-        codec='h264'
-    )
-    
-    print(f"Optimal resolution for {target_size_mb} MB: {optimal_size}")
-    
-    # Create video at optimized resolution
-    def preprocess_scaled(img):
-        from scipy.ndimage import zoom
+    for quality in qualities:
+        filename = f'output_{quality}.mp4'
         
-        # Scale down to optimal resolution
-        scale_y = optimal_size[1] / img.shape[0]
-        scale_x = optimal_size[0] / img.shape[1]
-        
-        img_scaled = zoom(img, (scale_y, scale_x), order=1)
-        return img_scaled / img_scaled.max()
-    
-    from _video import video_from_stack
-    video_from_stack(
-        stack,
-        preprocess_scaled,
-        'output_optimized.mp4',
-        codec='h264',
-        quality='medium',
-        fps=fps
-    )
-
-
-# =============================================================================
-# Example 7: Batch Processing
-# =============================================================================
-
-def example_batch_processing():
-    """Process multiple videos with different parameters."""
-    from _video import video_from_stack
-    
-    # Define multiple preprocessing functions
-    preprocessors = {
-        'raw': lambda img: img / img.max(),
-        'smooth': lambda img: gaussian_filter(img, 1.5) / img.max(),
-        'sharp': lambda img: img - gaussian_filter(img, 2.0),
-    }
-    
-    # Create videos with each preprocessor
-    for name, preprocess in preprocessors.items():
-        output_file = f'output_{name}.mp4'
-        
-        print(f"Creating {output_file}...")
         video_from_stack(
             stack,
             preprocess,
-            output_file,
-            codec='h264',
-            quality='medium',
+            filename,
             speed=2.0,
-            skip=2
+            codec='h264',
+            quality=quality,
+            verbose=False  # Suppress progress bars for clean output
         )
+        
+        # Get file size
+        import os
+        size_mb = os.path.getsize(filename) / (1024**2)
+        print(f"✓ {quality.capitalize()}: {filename} ({size_mb:.1f} MB)")
+
+
+# =============================================================================
+# EXAMPLE 9: Check System Capabilities
+# =============================================================================
+
+def example_check_system():
+    """Check available codecs and system information."""
+    from fastvideo import check_available_codecs, get_system_info
     
-    print("Batch processing complete!")
+    print("\n" + "="*60)
+    print("SYSTEM CAPABILITIES CHECK")
+    print("="*60)
+    
+    # Check available codecs
+    print("\nAvailable codecs:")
+    codecs = check_available_codecs(verbose=True)
+    
+    # Get system info
+    print("\nSystem information:")
+    info = get_system_info()
+    for key, value in info.items():
+        print(f"  {key}: {value}")
+    
+    print("="*60 + "\n")
 
 
 # =============================================================================
-# Example 8: Preview Before Rendering
+# EXAMPLE 10: Codec Comparison
 # =============================================================================
 
-def example_preview():
-    """Preview frames before creating full video."""
-    from _video import preview_multiple_frames, validate_video_settings
+def example_codec_comparison(stack):
+    """Compare different codecs for the same video."""
+    from fastvideo import video_from_stack
+    import os
     
     def preprocess(img):
-        return gaussian_filter(img, sigma=1.0) / img.max()
+        return img / img.max()
     
-    # Preview first, middle, and last frames
-    print("Previewing frames...")
-    preview_multiple_frames(
-        stack, 
-        preprocess,
-        frame_indices=[0, len(stack)//2, len(stack)-1]
-    )
+    codecs = ['h264', 'h265', 'mp4v']
     
-    # Validate settings
-    settings = {
-        'filename': 'output.mp4',
-        'speed': 2.0,
-        'codec': 'h264',
-        'quality': 'high',
-        'skip': 2
-    }
+    print("\nCodec Comparison:")
+    print("-" * 60)
     
-    if validate_video_settings(**settings):
-        print("Settings validated, proceeding with video creation...")
-        from _video import video_from_stack
-        video_from_stack(stack, preprocess, **settings)
+    for codec in codecs:
+        filename = f'output_{codec}.mp4'
+        
+        try:
+            video_from_stack(
+                stack,
+                preprocess,
+                filename,
+                speed=2.0,
+                codec=codec,
+                quality='medium',
+                start=0,
+                end=100,  # Just first 100 frames for comparison
+                verbose=False
+            )
+            
+            # Get file size
+            size_mb = os.path.getsize(filename) / (1024**2)
+            print(f"✓ {codec.upper()}: {size_mb:.1f} MB")
+            
+        except Exception as e:
+            print(f"✗ {codec.upper()}: Failed ({str(e)[:50]}...)")
+    
+    print("-" * 60)
 
 
 # =============================================================================
-# Example 9: Check Available Codecs
+# EXAMPLE 11: Complete PIV Workflow
 # =============================================================================
 
-def example_check_codecs():
-    """Check which video codecs are available on your system."""
-    from _video import check_available_codecs
+def example_complete_piv_workflow(stack, piv_results, pixel_size=0.65):
+    """
+    Complete workflow: preview → auto-calibrate → create video.
     
-    print("Checking available codecs...")
-    available = check_available_codecs()
+    Parameters
+    ----------
+    stack : object
+        Image stack
+    piv_results : dict
+        Dictionary with 'x', 'y', 'u', 'v' arrays
+    pixel_size : float
+        Pixel size in microns
+    """
+    from fastvideo import calculate_auto_arrow_scale, create_velocity_video
     
-    if 'h264' in available:
-        print("\nH.264 codec is available - recommended for general use")
-    
-    if 'h265' in available:
-        print("H.265 codec is available - best for high compression")
-    
-    if not available:
-        print("\nWarning: No optimized codecs found.")
-        print("Consider installing ffmpeg with codec support.")
-
-
-# =============================================================================
-# Example 10: Complete PIV Workflow
-# =============================================================================
-
-def example_complete_piv_workflow():
-    """Complete workflow from PIV analysis to video."""
-    from _video import (
-        auto_calibrate_arrows,
-        create_velocity_video,
-        estimate_file_size
-    )
-    
-    # Assume you have PIV results
-    pixel_size = 0.65  # microns per pixel
-    
-    # Step 1: Auto-calibrate parameters
-    print("Step 1: Calibrating arrow parameters...")
-    params = auto_calibrate_arrows(u, v, pixel_size)
-    
-    # Step 2: Estimate file size
-    print("\nStep 2: Estimating file size...")
-    duration = len(stack) / 30
-    size_est = estimate_file_size(
-        stack[0].data.shape[1], stack[0].data.shape[0],
-        duration, 30, codec='h264', quality='high'
-    )
-    print(f"Estimated file size: {size_est:.1f} MB")
-    
-    # Step 3: Create video
-    print("\nStep 3: Creating velocity video...")
+    x = piv_results['x']
+    y = piv_results['y']
+    u = piv_results['u']
+    v = piv_results['v']
     
     def preprocess(img):
-        # Smooth and normalize
-        img_smooth = gaussian_filter(img, sigma=1.0)
-        return img_smooth / img_smooth.max()
+        return (img - img.min()) / (img.max() - img.min())
     
+    # Step 1: Calculate optimal arrow scale
+    print("Step 1: Calculating optimal arrow scale...")
+    arrow_scale = calculate_auto_arrow_scale(u, v, pixel_size)
+    print(f"  → Recommended scale: {arrow_scale:.2f}")
+    
+    # Step 2: Calculate velocity statistics
+    print("\nStep 2: Analyzing velocity field...")
+    velocity_mag = np.sqrt(u**2 + v**2)
+    print(f"  → Median velocity: {np.median(velocity_mag):.2f} μm/s")
+    print(f"  → Max velocity: {np.max(velocity_mag):.2f} μm/s")
+    
+    # Step 3: Create final video
+    print("\nStep 3: Creating video...")
     create_velocity_video(
         stack, preprocess, x, y, u, v,
-        'piv_complete.mp4',
+        filename='piv_final.mp4',
         pixel_size=pixel_size,
-        vector_scale=params['scale'],
-        vector_skip=params['subsample'],
-        vector_color=(0, 255, 255),  # Cyan arrows
-        text=True,
-        fontsize=1.2,
-        codec='h264',
+        vector_scale=arrow_scale,
+        vector_skip=2,
+        vector_color=(255, 255, 0),
         quality='high',
-        fps=30
+        text=True,
+        fontsize=1.5
     )
     
-    print("\nComplete PIV workflow finished!")
-    print(f"Output: piv_complete.mp4")
+    print("✓ Complete PIV workflow finished!")
 
 
 # =============================================================================
-# Main execution
+# EXAMPLE 12: Error Handling
 # =============================================================================
+
+def example_error_handling(stack):
+    """Demonstrate proper error handling."""
+    from fastvideo import video_from_stack
+    
+    def preprocess(img):
+        return img / img.max()
+    
+    try:
+        # This might fail if codec not available
+        video_from_stack(
+            stack,
+            preprocess,
+            'test_video.mp4',
+            codec='h265',  # Might not be available
+            quality='high'
+        )
+        print("✓ Video created successfully")
+        
+    except RuntimeError as e:
+        print(f"✗ Video creation failed: {e}")
+        print("→ Trying fallback codec...")
+        
+        # Try with more compatible codec
+        video_from_stack(
+            stack,
+            preprocess,
+            'test_video.mp4',
+            codec='h264',  # More widely available
+            quality='high'
+        )
+        print("✓ Video created with fallback codec")
+    
+    except Exception as e:
+        print(f"✗ Unexpected error: {e}")
+
+
+# =============================================================================
+# MAIN FUNCTION
+# =============================================================================
+
+def run_all_examples(stack=None, piv_data=None):
+    """
+    Run all examples (requires valid stack object).
+    
+    Parameters
+    ----------
+    stack : object, optional
+        Image stack. If None, examples are just demonstrated.
+    piv_data : dict, optional
+        PIV results with 'x', 'y', 'u', 'v'
+    """
+    if stack is None:
+        print("No stack provided - showing example code only")
+        print("To run examples, provide a valid image stack object")
+        return
+    
+    print("\n" + "="*70)
+    print("FastVideo - Running All Examples")
+    print("="*70 + "\n")
+    
+    example_check_system()
+    example_basic_video(stack)
+    example_high_quality_with_text(stack)
+    example_advanced_preprocessing(stack)
+    example_frame_subset(stack)
+    example_multiple_qualities(stack)
+    example_codec_comparison(stack)
+    
+    if piv_data is not None:
+        example_velocity_video(
+            stack, 
+            piv_data['x'], piv_data['y'],
+            piv_data['u'], piv_data['v']
+        )
+    
+    print("\n" + "="*70)
+    print("All examples completed!")
+    print("="*70 + "\n")
+
 
 if __name__ == '__main__':
-    print("Video Creation Examples")
-    print("=" * 70)
-    print("\nAvailable examples:")
-    print("1. example_basic_video()")
-    print("2. example_custom_preprocessing()")
-    print("3. example_velocity_video()")
-    print("4. example_auto_calibrated_video()")
-    print("5. example_color_video()")
-    print("6. example_resolution_optimization()")
-    print("7. example_batch_processing()")
-    print("8. example_preview()")
-    print("9. example_check_codecs()")
-    print("10. example_complete_piv_workflow()")
-    print("\nRun any example function to see it in action.")
-    print("\nFirst, check available codecs:")
-    example_check_codecs()
+    # If run as script, show available examples
+    import fastvideo
+    print(f"\nFastVideo v{fastvideo.__version__} - Examples Module")
+    print("="*70)
+    print("\nAvailable example functions:")
+    print("  - example_basic_video(stack)")
+    print("  - example_high_quality_with_text(stack)")
+    print("  - example_advanced_preprocessing(stack)")
+    print("  - example_velocity_video(stack, x, y, u, v)")
+    print("  - example_manual_arrows(stack, x, y, u, v)")
+    print("  - example_frame_subset(stack)")
+    print("  - example_color_video(stack)")
+    print("  - example_multiple_qualities(stack)")
+    print("  - example_check_system()")
+    print("  - example_codec_comparison(stack)")
+    print("  - example_complete_piv_workflow(stack, piv_results)")
+    print("  - example_error_handling(stack)")
+    print("\nTo run all: run_all_examples(stack, piv_data)")
+    print("="*70)

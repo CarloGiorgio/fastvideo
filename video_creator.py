@@ -1,16 +1,15 @@
 """
-High-Level Video Creation Functions (Stub)
-==========================================
+High-Level Video Creation Functions
+====================================
 
 Convenience wrappers for common video creation workflows.
-These build on the core video_basic and video_vectors modules.
 """
 
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 import numpy as np
 
 from .video_basic import video_from_stack
-from .video_vectors import video_with_vectors
+from .video_vectors import video_with_vectors, calculate_auto_arrow_scale
 
 
 def create_video_simple(stack, preprocess: Callable, filename: str, **kwargs):
@@ -32,7 +31,6 @@ def create_video_simple(stack, preprocess: Callable, filename: str, **kwargs):
     --------
     >>> create_video_simple(stack, lambda x: x/x.max(), 'output.mp4')
     """
-    # Set defaults
     kwargs.setdefault('codec', 'h264')
     kwargs.setdefault('quality', 'medium')
     kwargs.setdefault('speed', 1.0)
@@ -73,7 +71,6 @@ def create_velocity_video(stack, preprocess: Callable,
     """
     # Auto-calculate arrow scale if not provided
     if 'vector_scale' not in kwargs:
-        from .video_vectors import calculate_auto_arrow_scale
         kwargs['vector_scale'] = calculate_auto_arrow_scale(u, v, pixel_size)
         print(f"Auto-calibrated arrow scale: {kwargs['vector_scale']:.2f}")
     
@@ -81,7 +78,7 @@ def create_velocity_video(stack, preprocess: Callable,
     kwargs.setdefault('codec', 'h264')
     kwargs.setdefault('quality', 'medium')
     kwargs.setdefault('vector_skip', 2)
-    kwargs.setdefault('vector_color', (255, 255, 0))  # Yellow
+    kwargs.setdefault('vector_color', (255, 255, 0))
     
     return video_with_vectors(stack, preprocess, x, y, u, v, filename, **kwargs)
 
@@ -94,23 +91,22 @@ def create_video_with_validation(stack, preprocess: Callable, filename: str,
     Parameters
     ----------
     stack : object
-        Stack with .data and .time() methods
+        Stack
     preprocess : callable
-        Preprocessing function  
+        Preprocessing function
     filename : str
         Output filename
     preview : bool, optional
-        Show preview before rendering (default: True)
+        Show preview before creating video
     **kwargs
         Additional parameters
     
     Examples
     --------
-    >>> create_video_with_validation(stack, preprocess, 'output.mp4',
-    ...                              preview=True, speed=2)
+    >>> create_video_with_validation(stack, preprocess, 'output.mp4', preview=True)
     """
     if preview:
-        print("Preview functionality requires matplotlib.")
-        print("Proceeding with video creation...")
+        print("Preview functionality requires full _video package")
+        print("Creating video without preview...")
     
     return create_video_simple(stack, preprocess, filename, **kwargs)
