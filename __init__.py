@@ -58,6 +58,7 @@ __all__ = [
     'interactive_preview',
     
     # Main creation functions
+    'create_video',
     'create_velocity_video',
     'create_video_simple',
     'create_video_with_validation',
