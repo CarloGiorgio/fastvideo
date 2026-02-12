@@ -27,6 +27,7 @@ from .preview import (
 )
 
 from .video_creator import (
+    create_video,
     create_velocity_video,
     create_video_simple,
     create_video_with_validation
