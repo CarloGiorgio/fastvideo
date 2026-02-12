@@ -20,6 +20,151 @@ from .utils import calculate_optimal_resolution, ensure_even_dimensions
 from .preview import validate_video_settings
 
 
+def create_video(
+    stack,
+    preprocessor: Callable,
+    output_path: str,
+    target_size_mb: float = 200,
+    dt: Optional[float] = None,
+    fps: float = 25.0,
+    codec: str = 'h264',
+    preset: str = 'medium',
+    resolution_scale: Optional[float] = None,
+    start: int = 0,
+    end: Optional[int] = None,
+    skip: int = 1,
+    text: bool = False,
+    text_position: Tuple[int, int] = (50, 50),
+    text_size: float = 1.5,
+    text_color: Tuple[int, int, int] = (255, 255, 255),
+    auto_optimize_resolution: bool = True,
+    use_gpu: bool = False,
+    verbose: bool = False
+    ):
+    times = stack.time()
+    if dt is None:
+        dt = np.mean(np.diff(times[1:]))
+    
+    # Handle frame range
+    if end is None or end <= 0:
+        end = len(stack)
+    end = min(end, len(stack))
+    
+    # Calculate duration
+    n_frames = (end - start) // skip
+    duration = n_frames / fps
+    
+    # Get original dimensions
+    first_img = preprocessor(stack[0].data.astype(float))
+    
+    # Handle CuPy arrays
+    try:
+        if hasattr(first_img, 'get'):
+            first_img = first_img.get()
+    except:
+        pass
+    
+    original_height, original_width = first_img.shape
+    
+    # Determine output resolution
+    if auto_optimize_resolution and resolution_scale is None:
+        opt_width, opt_height, bitrate = calculate_optimal_resolution(
+            original_width, original_height,
+            target_size_mb, duration, fps, codec
+        )
+        output_resolution = (opt_width, opt_height)
+    elif resolution_scale is not None:
+        # Manual scaling
+        opt_width = int(original_width * resolution_scale)
+        opt_height = int(original_height * resolution_scale)
+        opt_width, opt_height = ensure_even_dimensions(opt_width, opt_height)
+        output_resolution = (opt_width, opt_height)
+        
+        # Calculate bitrate
+        from .utils import estimate_file_size
+        estimated_size = estimate_file_size(opt_width, opt_height, n_frames, fps, codec)
+        bitrate_kbps = int((estimated_size * 8 * 1024) / duration)
+        bitrate = f"{bitrate_kbps}k"
+    else:
+        # No downsampling
+        opt_width, opt_height = ensure_even_dimensions(original_width, original_height)
+        output_resolution = None if (opt_width, opt_height) == (original_width, original_height) else (opt_width, opt_height)
+        bitrate = '500k'
+
+
+    if text:
+        time_array = times[start:end:skip]
+    
+    # Print summary
+    print("\n" + "="*70)
+    print("VIDEO CREATION")
+    print("="*70)
+    print(f"  Processing: {'GPU' if use_gpu else 'CPU'}")
+    print(f"  Frames: {start} to {end}, skip={skip} ({n_frames} total)")
+    print(f"  Duration: {duration:.1f} seconds")
+    print(f"  Original: {original_width}×{original_height}")
+    print(f"  Output: {opt_width}×{opt_height}")
+    print(f"  Target size: {target_size_mb} MB")
+    print(f"  Codec: {codec}, Preset: {preset}")
+    print(f"  Bitrate: {bitrate}")
+    print("="*70 + "\n")
+    
+    # Create FFmpeg writer
+    with RobustFFmpegWriter(
+        output_path,
+        opt_width,
+        opt_height,
+        fps,
+        bitrate=bitrate,
+        codec=codec,
+        preset=preset,
+        verbose=verbose
+    ) as writer:
+        
+        # Process frames
+        for i, frame_idx in enumerate(tqdm.tqdm(
+            range(start, end, skip),
+            desc="Rendering video"
+        )):
+            # Get frame with overlay
+            img = preprocessor(stack[frame_idx].data.astype(float))
+
+            # Handle CuPy arrays
+            try:
+                if hasattr(img, 'get'):
+                    img = img.get()
+            except:
+                pass
+
+            # Normalize float [0, 1] to uint8 [0, 255]
+            if img.dtype != np.uint8:
+                if img.max() <= 1.0:
+                    img = (img * 255).astype(np.uint8)
+                else:
+                    img = img.astype(np.uint8)
+
+            # Ensure correct dimensions
+            if img.shape[:2] != (opt_height, opt_width):
+                img = cv2.resize(
+                    img,
+                    (opt_width, opt_height),
+                    interpolation=cv2.INTER_AREA
+                )
+            
+            # Add text overlay
+            if text:
+                label = f't: {time_array[i]:.2f}s'
+                img = cv2.putText(
+                    img, label, text_position,
+                    cv2.FONT_HERSHEY_SIMPLEX, text_size,
+                    text_color, 2, cv2.LINE_AA
+                )
+            
+            # Write frame
+            writer.write(img)
+    
+    print("\n✓ Video creation complete!")
+
 def create_velocity_video(
     stack,
     preprocessor: Callable,
