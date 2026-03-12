@@ -50,6 +50,13 @@ from .utils import (
     mm2inch
 )
 
+from .scalebar import (
+    draw_scalebar_and_speed,
+    pick_scalebar_length_um,
+    compute_video_speed,
+    format_speed,
+)
+
 # Define what's available with "from slmicro_video import *"
 __all__ = [
     # Preview functions
@@ -76,6 +83,12 @@ __all__ = [
     # Utilities
     'calculate_optimal_resolution',
     'auto_calibrate_arrows',
+    
+    #Scalebar
+    'draw_scalebar_and_speed',
+    'pick_scalebar_length_um',
+    'compute_video_speed',
+    'format_speed',
 ]
 
 # Print import status
