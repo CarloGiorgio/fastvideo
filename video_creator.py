@@ -26,6 +26,7 @@ from .scalebar import (
     compute_video_speed,
     format_speed,
     draw_scalebar_and_speed,
+    draw_scalebar_inline
 )
 
 
@@ -313,6 +314,8 @@ def create_velocity_video(
     arrow_width: int = 2,
     arrow_color: Tuple[int, int, int] = (255, 255, 0),
     subsample: Optional[int] = None,
+    velocity_skip: Optional[int] = None,
+    bitratefix: Optional[str] = None,
     start: int = 0,
     end: Optional[int] = None,
     skip: int = 1,
@@ -325,6 +328,7 @@ def create_velocity_video(
     verbose: bool = False,
     # --- scalebar / speed ---
     show_scalebar: bool = True,
+    scalebar_isinline : bool = True,
     scalebar_length_um: Optional[float] = None,
     scalebar_margin: int = 20,
     scalebar_bar_height: int = 6,
@@ -362,6 +366,12 @@ def create_velocity_video(
         Manual downscaling factor.
     arrow_scale, arrow_width, arrow_color, subsample
         Arrow rendering parameters (see ``VelocityOverlayProcessor``).
+    velocity_skip : int or None
+        Ratio of image frames to velocity frames.  If the velocity
+        field was computed every Nth image frame, set this to N.
+        ``None`` → auto-detect from ``len(stack) / u.shape[0]``.
+    bitratefix : str or None
+        Fix bitrate for the video creation
     start, end, skip : int
         Frame range and skip factor.
     text : bool
@@ -378,6 +388,8 @@ def create_velocity_video(
         Draw a scalebar and video-speed indicator on the top-right
         corner.  Speed is computed from ``skip``, real acquisition dt,
         and ``fps``.
+    scalebar_isinline : bool
+        type of scalebar to be used
     scalebar_length_um : float or None
         Physical length of the bar in µm.  ``None`` → auto-pick.
     scalebar_margin : int
@@ -414,6 +426,22 @@ def create_velocity_video(
     duration = n_frames / fps
 
     # ------------------------------------------------------------------
+    # Velocity skip factor  (image frames per velocity frame)
+    # ------------------------------------------------------------------
+    n_vel_frames = u.shape[0] if u.ndim == 3 else 1
+    n_stack_frames = len(stack)
+
+    if velocity_skip is None:
+        if u.ndim == 3 and n_vel_frames < n_stack_frames:
+            velocity_skip = max(1, round(n_stack_frames / n_vel_frames))
+            print(f"Auto-detected velocity_skip={velocity_skip}  "
+                  f"({n_stack_frames} images / {n_vel_frames} velocity frames)")
+        else:
+            velocity_skip = 1
+    else:
+        velocity_skip = max(1, int(velocity_skip))
+
+    # ------------------------------------------------------------------
     # Original dimensions
     # ------------------------------------------------------------------
     first_img = preprocessor(stack[0].data.astype(float))
@@ -448,6 +476,9 @@ def create_velocity_video(
             else (opt_width, opt_height)
         )
         bitrate = "500k"
+        
+    if bitratefix is not None:
+        bitrate = bitratefix
 
     # ------------------------------------------------------------------
     # Scalebar & speed
@@ -515,6 +546,8 @@ def create_velocity_video(
     print("=" * 70)
     print(f"  Processing       : {'GPU' if use_gpu else 'CPU'}")
     print(f"  Frames           : {start} to {end}, skip={skip} ({n_frames} total)")
+    print(f"  Velocity skip    : {velocity_skip}  "
+          f"({n_vel_frames} vel frames / {n_stack_frames} images)")
     print(f"  Duration         : {duration:.1f} s")
     print(f"  Original         : {original_width}×{original_height}")
     print(f"  Output           : {opt_width}×{opt_height}")
@@ -540,9 +573,12 @@ def create_velocity_video(
         for i, frame_idx in enumerate(
             tqdm.tqdm(range(start, end, skip), desc="Rendering velocity video")
         ):
+            # Map image frame index → velocity frame index
+            vel_idx = frame_idx // velocity_skip
+
             img_with_arrows = processor(
                 stack[frame_idx].data.astype(float),
-                frame_idx,
+                vel_idx,
             )
 
             # Ensure correct dimensions
@@ -564,16 +600,27 @@ def create_velocity_video(
 
             # Scalebar + speed (top-right)
             if show_scalebar:
-                draw_scalebar_and_speed(
-                    img_with_arrows,
-                    pixel_size_um=pixel_size_out,
-                    speed=video_speed,
-                    scalebar_length_um=_scalebar_len,
-                    margin=scalebar_margin,
-                    bar_height=scalebar_bar_height,
-                    bar_color=scalebar_color,
-                    font_scale=scalebar_font_scale,
-                )
+                if scalebar_isinline:
+                    draw_scalebar_inline(
+                        img_with_arrows,
+                        pixel_size_um=pixel_size_out,
+                        speed=video_speed,
+                        scalebar_length_um=_scalebar_len,
+                        margin=scalebar_margin,
+                        bar_color=scalebar_color,
+                        font_scale=scalebar_font_scale,
+                    )
+                else:
+                    draw_scalebar_and_speed(
+                        img_with_arrows,
+                        pixel_size_um=pixel_size_out,
+                        speed=video_speed,
+                        scalebar_length_um=_scalebar_len,
+                        margin=scalebar_margin,
+                        bar_height=scalebar_bar_height,
+                        bar_color=scalebar_color,
+                        font_scale=scalebar_font_scale,
+                    )
 
             writer.write(img_with_arrows)
 

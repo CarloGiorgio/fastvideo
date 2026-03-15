@@ -210,3 +210,145 @@ def draw_scalebar_and_speed(
     )
 
     return img_rgb
+
+
+
+
+def draw_scalebar_inline(
+    img_rgb: np.ndarray,
+    pixel_size_um: float,
+    speed: float,
+    scalebar_length_um: Optional[float] = None,
+    margin: int = 20,
+    bar_color: Tuple[int, int, int] = (255, 255, 255),
+    outline_color: Tuple[int, int, int] = (0, 0, 0),
+    font_scale: float = 0.55,
+    font_thickness: int = 1,
+    padding_x: int = 8,
+    padding_y: int = 6,
+) -> np.ndarray:
+    """
+    Draw a scalebar with size and speed labels **inside** the bar.
+
+    Layout (right-aligned, top margin)::
+
+        ┌──────────────────────────────┐
+        │  50 µm               2.5×   │
+        └──────────────────────────────┘
+
+    The bar width is determined by the physical scale (in pixels).
+    If the text is wider than the physical bar, the bar is enlarged
+    to fit the labels.  The bar height auto-sizes to the text.
+
+    Parameters
+    ----------
+    img_rgb : ndarray
+        RGB image (H, W, 3) uint8.  Modified **in-place**.
+    pixel_size_um : float
+        Effective µm / pixel at the current output resolution.
+    speed : float
+        Playback speed relative to real time.
+    scalebar_length_um : float or None
+        Physical bar length in µm.  ``None`` → auto-pick.
+    margin : int
+        Pixel margin from the top-right corner.
+    bar_color : tuple
+        RGB fill colour of the bar rectangle (also used for text).
+    outline_color : tuple
+        RGB colour for the dark outline / text shadow.
+    font_scale : float
+        cv2 font scale.
+    font_thickness : int
+        cv2 font thickness.
+    padding_x : int
+        Horizontal padding inside the bar (pixels).
+    padding_y : int
+        Vertical padding inside the bar (pixels).
+
+    Returns
+    -------
+    ndarray
+        Same ``img_rgb`` (modified in-place).
+    """
+    h, w = img_rgb.shape[:2]
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    # Auto-pick bar length
+    if scalebar_length_um is None:
+        scalebar_length_um = pick_scalebar_length_um(w, pixel_size_um)
+
+    bar_length_px = int(round(scalebar_length_um / pixel_size_um))
+    bar_length_px = max(bar_length_px, 4)
+
+    # Format labels
+    if scalebar_length_um >= 1000:
+        size_label = f'{scalebar_length_um / 1000:.3g} mm'
+    else:
+        size_label = f'{int(scalebar_length_um)} um'
+
+    speed_label = format_speed(speed)
+
+    # Measure text
+    (tw_size, th_size), _ = cv2.getTextSize(size_label, font, font_scale, font_thickness)
+    (tw_spd, th_spd), _ = cv2.getTextSize(speed_label, font, font_scale, font_thickness)
+
+    text_height = max(th_size, th_spd)
+    min_text_width = tw_size + tw_spd + 3 * padding_x  # left_pad + gap + right_pad
+
+    # Bar dimensions: width from physics, but at least wide enough for text
+    bar_width = max(bar_length_px, min_text_width)
+    bar_height = text_height + 2 * padding_y
+
+    # Position: top-right corner
+    x_bar_right = w - margin
+    x_bar_left = x_bar_right - bar_width
+    y_bar_top = margin
+    y_bar_bot = y_bar_top + bar_height
+
+    # --- Draw dark outline rectangle ---
+    cv2.rectangle(
+        img_rgb,
+        (x_bar_left - 1, y_bar_top - 1),
+        (x_bar_right + 1, y_bar_bot + 1),
+        outline_color, -1, cv2.LINE_AA,
+    )
+
+    # --- Draw filled bar ---
+    cv2.rectangle(
+        img_rgb,
+        (x_bar_left, y_bar_top),
+        (x_bar_right, y_bar_bot),
+        bar_color, -1, cv2.LINE_AA,
+    )
+
+    # --- Text colour: choose contrast (black or white) against the bar ---
+    # Perceived brightness of bar_color
+    brightness = 0.299 * bar_color[0] + 0.587 * bar_color[1] + 0.114 * bar_color[2]
+    text_color = (0, 0, 0) if brightness > 128 else (255, 255, 255)
+    shadow_color = (255, 255, 255) if brightness > 128 else (0, 0, 0)
+
+    # Text baseline: vertically centered inside bar
+    y_text = y_bar_top + padding_y + text_height
+
+    # Size label — left-aligned inside bar
+    x_text_size = x_bar_left + padding_x
+
+    # Speed label — right-aligned inside bar
+    x_text_spd = x_bar_right - padding_x - tw_spd
+
+    # Draw text with thin shadow for readability
+    for label, x_pos in [(size_label, x_text_size), (speed_label, x_text_spd)]:
+        # Shadow (1 px offset)
+        cv2.putText(
+            img_rgb, label, (x_pos + 1, y_text + 1),
+            font, font_scale, shadow_color,
+            font_thickness, cv2.LINE_AA,
+        )
+        # Main text
+        cv2.putText(
+            img_rgb, label, (x_pos, y_text),
+            font, font_scale, text_color,
+            font_thickness, cv2.LINE_AA,
+        )
+
+    return img_rgb
